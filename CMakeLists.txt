@@ -9,8 +9,9 @@ add_executable(bmc
 )
 target_link_libraries(bmc
   pico_stdlib
-  pico_cyw43_arch_none
+  pico_cyw43_arch_lwip_threadsafe_background
 )
-pico_enable_stdio_usb(bmc 1) 
-pico_enable_stdio_uart(bmc 0) 
+pico_enable_stdio_usb(bmc 1)
+pico_enable_stdio_uart(bmc 0)
 pico_add_extra_outputs(bmc)
+target_include_directories(bmc PRIVATE ${CMAKE_CURRENT_LIST_DIR})
