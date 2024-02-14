@@ -7,6 +7,7 @@
 #define STATE_UPDATE_REPEAT_DELAY_MS 100
 
 bool current_state = false;
+struct repeating_timer * state_update_timer = NULL; 
 
 int64_t pw_sw_on_async (alarm_id_t id, void * user_data) {
 	cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
@@ -29,10 +30,15 @@ bool bmc_power_handler (bool requested_state) {
 	}
 }
 
-struct repeating_timer * bmc_handler_init () {
-	struct repeating_timer * timer = malloc(sizeof(struct repeating_timer));
-	add_repeating_timer_ms(STATE_UPDATE_REPEAT_DELAY_MS, update_current_state_async, NULL, timer);
-	return timer;
+void bmc_handler_init () {
+	state_update_timer = malloc(sizeof(struct repeating_timer));
+	add_repeating_timer_ms(STATE_UPDATE_REPEAT_DELAY_MS, update_current_state_async, NULL, state_update_timer);
+}
+
+void bmc_handler_deinit () {
+	cancel_repeating_timer(state_update_timer);
+	free(state_update_timer);
+	state_update_timer = NULL;
 }
 
 #endif

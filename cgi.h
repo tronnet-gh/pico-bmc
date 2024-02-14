@@ -5,19 +5,29 @@
 #include "pico/cyw43_arch.h"
 #include "handlers.h"
 
-const char * cgi_power_handler (int iIndex, int iNumParams, char *pcParam[], char *pcValue[]) {
+char parseRequestedState (char * requested_state) {
+	
+}
+
+const char * cgi_power_handler (int iIndex, int iNumParams, char * pcParam [], char * pcValue []) {
 	// Check if an request for power has been made (/power?requested_state=x)
 	if (strcmp(pcParam[0] , "requested_state") == 0){
-		// Look at the argument to check if LED is to be turned on (x=1) or off (x=0)
-		if(strcmp(pcValue[0], "0") == 0) {
+		if (strcmp(pcValue[0], "0") == 0) {
 			bmc_power_handler(false);
+			return "/power.ssi";
 		}
-		else if(strcmp(pcValue[0], "1") == 0) {
+		else if (strcmp(pcValue[0], "1") == 0) {
 			bmc_power_handler(true);
+			return "/power.ssi";
+		}
+		else {
+			return "/error_requested_state_invalid.ssi";
 		}
 	}
 	// Send the index page back to the user
-	return "/power.ssi";
+	else {
+		return "/error_missing_requested_state.ssi";
+	}
 }
 
 const char * cgi_status_handler (int iIndex, int iNumParams, char *pcParam[], char *pcValue[]) {

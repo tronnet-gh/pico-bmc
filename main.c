@@ -32,5 +32,8 @@ int main() {
 	cgi_init();
 	printf("CGI Handler initialised\n");
 
+	bmc_handler_init();
+	printf("BMC handler initialized\n");
+
 	while(1);
 }
