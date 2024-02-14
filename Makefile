@@ -1,16 +1,13 @@
-#TOPTARGETS := all clean
+.PHONY: all clean build makefsdata
 
-SUBDIRS := build
+all: clean makefsdata build
 
-all: makefsdata $(SUBDIRS)
+clean:
+	$(MAKE) -C build/ clean
+	rm -rf wwwdata.c
 
 makefsdata:
 	python3 makefsdata.py
 
-clean: $(SUBDIRS)
-	rm -rf htmldata.c
-
-$(SUBDIRS):
-	$(MAKE) -C $@ $(MAKECMDGOALS)
-
-.PHONY: all makefsdata clean $(SUBDIRS)
+build:
+	$(MAKE) -C build/
