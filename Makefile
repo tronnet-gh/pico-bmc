@@ -1,9 +1,16 @@
-TOPTARGETS := all clean
+#TOPTARGETS := all clean
 
-SUBDIRS := $(wildcard */.)
+SUBDIRS := build
 
-$(TOPTARGETS): $(SUBDIRS)
+all: makefsdata $(SUBDIRS)
+
+makefsdata:
+	python3 makefsdata.py
+
+clean: $(SUBDIRS)
+	rm -rf htmldata.c
+
 $(SUBDIRS):
-		$(MAKE) -C $@ $(MAKECMDGOALS)
+	$(MAKE) -C $@ $(MAKECMDGOALS)
 
-.PHONY: $(TOPTARGETS) $(SUBDIRS)
+.PHONY: all makefsdata clean $(SUBDIRS)

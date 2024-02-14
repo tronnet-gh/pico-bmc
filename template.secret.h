@@ -1,7 +1,7 @@
 #ifndef SECRET_H
 #define SECRET_H
 
-char ssid[] = "wifi ssid";
-char pass[] = "wifi pass";
+const char WIFI_SSID[] = "ssid";
+const char WIFI_PASS[] = "pass";
 
 #endif
