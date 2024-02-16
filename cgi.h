@@ -5,10 +5,6 @@
 #include "pico/cyw43_arch.h"
 #include "handlers.h"
 
-char parseRequestedState (char * requested_state) {
-	
-}
-
 const char * cgi_power_handler (int iIndex, int iNumParams, char * pcParam [], char * pcValue []) {
 	// Check if an request for power has been made (/power?requested_state=x)
 	if (strcmp(pcParam[0] , "requested_state") == 0){
