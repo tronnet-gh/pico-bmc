@@ -2,8 +2,6 @@
 #define SSI_H
 
 #include "lwip/apps/httpd.h"
-#include "pico/cyw43_arch.h"
-#include "hardware/adc.h"
 #include "handlers.h"
 
 const char * ssi_tags[] = {"volt", "temp", "power"};

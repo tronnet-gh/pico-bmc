@@ -2,7 +2,6 @@
 #define CGI_H
 
 #include "lwip/apps/httpd.h"
-#include "pico/cyw43_arch.h"
 #include "handlers.h"
 
 const char * cgi_power_handler (int iIndex, int iNumParams, char * pcParam [], char * pcValue []) {
