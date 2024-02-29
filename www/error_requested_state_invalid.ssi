@@ -1,4 +1,0 @@
-{
-    "error": true,
-    "description": "Invalid requested_state must be 0 or 1"
-}
