@@ -30,8 +30,11 @@ int main() {
 	// set LED to on to indicate it has connected and initialized
 	cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
-    while(true);
+    while (!http_serv_state->complete) {
+		sleep_ms(1000);
+	}
 
+	bmc_handler_deinit();
 	http_serv_deinit();
     cyw43_arch_deinit();
     return 0;

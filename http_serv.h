@@ -16,7 +16,6 @@ typedef struct TCP_SERVER_T_ {
     struct tcp_pcb * server_pcb;
     bool complete;
     ip_addr_t gw;
-
 } TCP_SERVER_T;
 
 typedef struct TCP_CONNECT_STATE_T_ {
@@ -29,7 +28,7 @@ typedef struct TCP_CONNECT_STATE_T_ {
     ip_addr_t * gw;
 } TCP_CONNECT_STATE_T;
 
-TCP_SERVER_T * state = NULL;
+TCP_SERVER_T * http_serv_state = NULL;
 
 static err_t tcp_close_client_connection(TCP_CONNECT_STATE_T * con_state, struct tcp_pcb * client_pcb, err_t close_err) {
     if (client_pcb) {
@@ -52,7 +51,7 @@ static err_t tcp_close_client_connection(TCP_CONNECT_STATE_T * con_state, struct
     return close_err;
 }
 
-static void tcp_server_close(TCP_SERVER_T *state) {
+static void tcp_server_close(TCP_SERVER_T * state) {
     if (state->server_pcb) {
         tcp_arg(state->server_pcb, NULL);
         tcp_close(state->server_pcb);
@@ -274,13 +273,13 @@ static bool tcp_server_open(void * arg) {
 }
 
 int http_serv_init () {
-    state = calloc(1, sizeof(TCP_SERVER_T));
-    if (!state) {
+    http_serv_state = calloc(1, sizeof(TCP_SERVER_T));
+    if (!http_serv_state) {
         DEBUG_printf("[HTTP] [ERR] Failed to allocate state\n");
         return 1;
     }
 
-    if (!tcp_server_open(state)) {
+    if (!tcp_server_open(http_serv_state)) {
         DEBUG_printf("[HTTP] [ERR] Failed to open server\n");
         return 1;
     }
@@ -291,7 +290,9 @@ int http_serv_init () {
 }
 
 int http_serv_deinit () {
-    tcp_server_close(state);
+    tcp_server_close(http_serv_state);
+    free(http_serv_state);
+    http_serv_state = NULL;
     return 0;
 }
 
