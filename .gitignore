@@ -1,5 +1,4 @@
 **/build/*
 **/secret.h
-**/wwwdata.c
 **/*.log
 **/*.raw

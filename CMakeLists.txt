@@ -12,7 +12,6 @@ target_include_directories(${PROGRAM_NAME} PRIVATE
 )
 target_link_libraries(${PROGRAM_NAME}
     pico_cyw43_arch_lwip_threadsafe_background
-    pico_lwip_http
     pico_stdlib
     hardware_adc
 )
