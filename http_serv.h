@@ -21,8 +21,13 @@ typedef struct TCP_SERVER_T_ {
 typedef struct TCP_CONNECT_STATE_T_ {
     struct tcp_pcb * pcb;
     int sent_len;
-    char headers[128];
-    char result[256];
+    char method[8];
+    char request[128];
+    char params[128];
+    char protocol[8];
+    char headers[1024];
+    char body[128];
+    char result[128];
     int header_len;
     int result_len;
     ip_addr_t * gw;
@@ -70,14 +75,14 @@ static err_t tcp_server_sent(void * arg, struct tcp_pcb * pcb, u16_t len) {
     return ERR_OK;
 }
 
-static int handle_status_get (const char * request, const char * params, char * result, size_t max_result_len) {
+static int handle_status_get (const char * request, const char * params, const char * body, char * result, size_t max_result_len) {
     return snprintf(result, max_result_len, "{volt: %f, temp: %f, power: %d}", current_state.voltage, current_state.tempC, current_state.power_state);
 }
 
-static int handle_power_post (const char * request, const char * params, char * result, size_t max_result_len) {
-    if (params) {
+static int handle_power_post (const char * request, const char * params, const char * body, char * result, size_t max_result_len) {
+    if (strstr(body, "requested_state")) {
         int requested_power_state_int;
-        int led_param = sscanf(params, "requested_state=%d", &requested_power_state_int);
+        int led_param = sscanf(body, "requested_state=%d", &requested_power_state_int);
         if (led_param) {
             if  (requested_power_state_int == 0 || requested_power_state_int == 1) {
                 bmc_power_handler((bool) requested_power_state_int);
@@ -96,6 +101,68 @@ static int handle_power_post (const char * request, const char * params, char * 
     }
 }
 
+int parse_content (struct pbuf * p, TCP_CONNECT_STATE_T * con_state) {
+    char content[2048] = {0};
+    pbuf_copy_partial(p, &content, 2048 - 1, 0);
+
+    char * headers_start = content; // First header line containing method request?params HTTP/protocol
+    char * headers_other = strstr(content, "\r\n") + 2; // remaining headers follow the first line
+    char * body_start = strstr(content, "\r\n\r\n") + 4; // body begins at the end of headers
+
+    *(headers_other - 2) = 0;
+    *(body_start - 4) = 0;
+
+    char request_params_comb[256];
+    if (sscanf(headers_start, "%s %s HTTP/%s", con_state->method, request_params_comb, con_state->protocol) != 3) {
+        return 0;
+    }
+  
+    char * params = strchr(request_params_comb, '?');
+    if (params) {
+        *params++ = 0;
+        strcpy(con_state->request, request_params_comb);
+        strcpy(con_state->params, params);
+    }
+    else {
+        strcpy(con_state->request, request_params_comb);
+    }
+
+    strcpy(con_state->headers, headers_other);
+    strcpy(con_state->body, body_start);
+
+    return 1;
+}
+
+int send_response (TCP_CONNECT_STATE_T * con_state, struct tcp_pcb * pcb) {
+    // Check result buffer size
+    if (con_state->result_len > sizeof(con_state->result) - 1) {
+        DEBUG_printf("[HTTP] [ERR] Too much result data %d\n", con_state->result_len);
+        return tcp_close_client_connection(con_state, pcb, ERR_CLSD);
+    }
+    // Check header buffer size
+    if (con_state->header_len > sizeof(con_state->headers) - 1) {
+        DEBUG_printf("[HTTP] [ERR] Too much header data %d\n", con_state->header_len);
+        return tcp_close_client_connection(con_state, pcb, ERR_CLSD);
+    }
+
+    // Send the headers to the client
+    con_state->sent_len = 0;
+    err_t err = tcp_write(pcb, con_state->headers, con_state->header_len, 0);
+    if (err != ERR_OK) {
+        DEBUG_printf("[HTTP] [ERR] Failed to write header data %d\n", err);
+        return tcp_close_client_connection(con_state, pcb, err);
+    }
+    // Send the body to the client
+    if (con_state->result_len) {
+        err = tcp_write(pcb, con_state->result, con_state->result_len, 0);
+        if (err != ERR_OK) {
+            DEBUG_printf("[HTTP] [ERR] Failed to write result data %d\n", err);
+            return tcp_close_client_connection(con_state, pcb, err);
+        }
+    }
+    return 0;
+}
+
 err_t tcp_server_recv(void * arg, struct tcp_pcb * pcb, struct pbuf * p, err_t err) {
     TCP_CONNECT_STATE_T * con_state = (TCP_CONNECT_STATE_T *)arg;
     if (!p) {
@@ -106,56 +173,25 @@ err_t tcp_server_recv(void * arg, struct tcp_pcb * pcb, struct pbuf * p, err_t e
     if (p->tot_len > 0) {
         DEBUG_printf("[HTTP] [OK ] Server recieved %d err %d\n", p->tot_len, err);
         // Copy the request into the buffer
-        pbuf_copy_partial(p, con_state->headers, p->tot_len > sizeof(con_state->headers) - 1 ? sizeof(con_state->headers) - 1 : p->tot_len, 0);
-        
-        // parse header, should probably put this into a separate method
-        char * method = con_state->headers;
-        char * request = NULL;
-        if (strncmp(method, HTTP_GET, sizeof(HTTP_GET) - 1) == 0) {
-            *(con_state->headers + sizeof(HTTP_GET) - 1) = 0;
-            request = con_state->headers + sizeof(HTTP_GET); // + space
-        }
-        else if (strncmp(method, HTTP_POST, sizeof(HTTP_POST) - 1) == 0) {
-            *(con_state->headers + sizeof(HTTP_POST) - 1) = 0;
-            request = con_state->headers + sizeof(HTTP_POST); // + space
-        }
-        char * params = strchr(request, '?');
-        if (params) {
-            if (*params) {
-                char * space = strchr(request, ' ');
-                *params++ = 0;
-                if (space) {
-                    *space = 0;
-                }
-            } else {
-                params = NULL;
-            }
-        }
-        else {
-            char * space = strchr(request, ' ');
-            if (space) {
-                *space = 0;
-            }
-        }
 
+        if (!parse_content(p, con_state)) {
+            DEBUG_printf("[HTTP] [ERR] Failed to parse header\n");
+            return tcp_close_client_connection(con_state, pcb, ERR_OK); 
+        }
+        
         // print request
-        if (params) {
-            DEBUG_printf("[HTTP] [OK ] Request: %s %s?%s\n", method, request, params);
-        }
-        else {
-            DEBUG_printf("[HTTP] [OK ] Request: %s %s\n", method, request);
-        }
+        DEBUG_printf("[HTTP] [OK ] Request: %s %s?%s %s\n", con_state->method, con_state->request, con_state->params, con_state->body);
 
         int response_code;
 
         // parse request depending on method and request
-        if (strncmp(method, HTTP_GET, sizeof(HTTP_GET) - 1) == 0 && strncmp(request, "/status", sizeof("/status") - 1) == 0) {
-            con_state->result_len = handle_status_get(request, params, con_state->result, sizeof(con_state->result));
+        if (strncmp(con_state->method, HTTP_GET, sizeof(HTTP_GET) - 1) == 0 && strncmp(con_state->request, "/status", sizeof("/status") - 1) == 0) {
+            con_state->result_len = handle_status_get(con_state->request, con_state->params, con_state->body, con_state->result, sizeof(con_state->result));
             response_code = 200;
             con_state->header_len = snprintf(con_state->headers, sizeof(con_state->headers), HTTP_RESPONSE_HEADER, response_code, con_state->result_len);
         }
-        else if (strncmp(method, HTTP_POST, sizeof(HTTP_POST) - 1) == 0 && strncmp(request, "/power", sizeof("/power") - 1) == 0) {
-            con_state->result_len = handle_power_post(request, params, con_state->result, sizeof(con_state->result));
+        else if (strncmp(con_state->method, HTTP_POST, sizeof(HTTP_POST) - 1) == 0 && strncmp(con_state->request, "/power", sizeof("/power") - 1) == 0) {
+            con_state->result_len = handle_power_post(con_state->request, con_state->params, con_state->body, con_state->result, sizeof(con_state->result));
             response_code = 200;
             con_state->header_len = snprintf(con_state->headers, sizeof(con_state->headers), HTTP_RESPONSE_HEADER, response_code, con_state->result_len);
         }
@@ -168,31 +204,8 @@ err_t tcp_server_recv(void * arg, struct tcp_pcb * pcb, struct pbuf * p, err_t e
         // print result
         DEBUG_printf("[HTTP] [OK ] Result: %d %s\n", response_code, con_state->result);
 
-        // Check result buffer size
-        if (con_state->result_len > sizeof(con_state->result) - 1) {
-            DEBUG_printf("[HTTP] [ERR] Too much result data %d\n", con_state->result_len);
-            return tcp_close_client_connection(con_state, pcb, ERR_CLSD);
-        }
-        // Check header buffer size
-        if (con_state->header_len > sizeof(con_state->headers) - 1) {
-            DEBUG_printf("[HTTP] [ERR] Too much header data %d\n", con_state->header_len);
-            return tcp_close_client_connection(con_state, pcb, ERR_CLSD);
-        }
-
-        // Send the headers to the client
-        con_state->sent_len = 0;
-        err_t err = tcp_write(pcb, con_state->headers, con_state->header_len, 0);
-        if (err != ERR_OK) {
-            DEBUG_printf("[HTTP] [ERR] Failed to write header data %d\n", err);
-            return tcp_close_client_connection(con_state, pcb, err);
-        }
-        // Send the body to the client
-        if (con_state->result_len) {
-            err = tcp_write(pcb, con_state->result, con_state->result_len, 0);
-            if (err != ERR_OK) {
-                DEBUG_printf("[HTTP] [ERR] Failed to write result data %d\n", err);
-                return tcp_close_client_connection(con_state, pcb, err);
-            }
+        if (send_response(con_state, pcb)) {
+            DEBUG_printf("[HTTP] [ERR] Failure in send\n");
         }
 
         tcp_recved(pcb, p->tot_len);
