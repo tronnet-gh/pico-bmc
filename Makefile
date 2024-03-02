@@ -1,9 +1,31 @@
-.PHONY: all clean build makefsdata
+.PHONY: all clean build release debug
+
+MAKEFLAGS := --jobs=$(shell nproc)
 
 all: clean build
 
 clean:
-	$(MAKE) -C build/ clean
+	@ $(MAKE) -C build/ clean
 
 build:
-	$(MAKE) -C build/
+	@ $(MAKE) -C build/
+
+release:
+	@ cmake \
+	--no-warn-unused-cli \
+	-DCMAKE_BUILD_TYPE:STRING=Release \
+	-DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE \
+	-DCMAKE_C_COMPILER:FILEPATH=/usr/bin/arm-none-eabi-gcc \
+	-DCMAKE_CXX_COMPILER:FILEPATH=/usr/bin/arm-none-eabi-g++ \
+	-S . \
+	-B build
+
+debug:
+	@ cmake \
+	--no-warn-unused-cli \
+	-DCMAKE_BUILD_TYPE:STRING=Debug \
+	-DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE \
+	-DCMAKE_C_COMPILER:FILEPATH=/usr/bin/arm-none-eabi-gcc \
+	-DCMAKE_CXX_COMPILER:FILEPATH=/usr/bin/arm-none-eabi-g++ \
+	-S . \
+	-B build
