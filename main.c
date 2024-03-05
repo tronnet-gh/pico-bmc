@@ -7,16 +7,16 @@
 #include "secret.h"
 
 int main() {
-    stdio_init_all();
+	stdio_init_all();
 
-    if (cyw43_arch_init()) {
-        DEBUG_printf("[INIT] [ERR] Failed to initialise cyw43\n");
-        return 1;
-    }
+	if (cyw43_arch_init()) {
+		DEBUG_printf("[INIT] [ERR] Failed to initialise cyw43\n");
+		return 1;
+	}
 
 	cyw43_arch_enable_sta_mode();
 
-    if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK, 30000)){
+	if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK, 30000)){
 		DEBUG_printf("[INIT] [ERR] Wi-Fi failed to connect\n");
 		return -1;
 	}
@@ -30,12 +30,12 @@ int main() {
 	// set LED to on to indicate it has connected and initialized
 	cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
-    while (!http_serv_state->complete) {
+	while (!http_serv_state->complete) {
 		sleep_ms(1000);
 	}
 
 	bmc_handler_deinit();
 	http_serv_deinit();
-    cyw43_arch_deinit();
-    return 0;
+	cyw43_arch_deinit();
+	return 0;
 }

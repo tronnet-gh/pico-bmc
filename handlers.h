@@ -35,7 +35,7 @@ int64_t pw_sw_off_async (alarm_id_t id, void * user_data) {
 // hander fn to read from the power state
 bool update_current_state_async (repeating_timer_t * rt) {
 	current_state.voltage = adc_read() * 3.3f / (1 << 12);
-    current_state.tempC = 27.0f - (current_state.voltage - 0.706f) / 0.001721f;
+	current_state.tempC = 27.0f - (current_state.voltage - 0.706f) / 0.001721f;
 	current_state.power_state = gpio_get(PW_STATE_PIN) ^ PW_STATE_INV;
 	return true; // continue repeating alarm
 }
