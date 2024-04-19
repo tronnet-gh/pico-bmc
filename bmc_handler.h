@@ -1,5 +1,5 @@
-#ifndef HANDLERS_H
-#define HANDLERS_H
+#ifndef BMC_HANDLER_H
+#define BMC_HANDLER_H
 
 #define PW_SWITCH_PIN 0
 #define PW_SWITCH_DELAY_MS 100

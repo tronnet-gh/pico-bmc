@@ -2,9 +2,17 @@
 #define DEBUG_printf printf
 
 #include "pico_lib.h"
-#include "handlers.h"
+#include "bmc_handler.h"
 #include "http_serv.h"
 #include "secret.h"
+
+void set_host_name(const char * hostname) {
+    cyw43_arch_lwip_begin();
+    struct netif *n = &cyw43_state.netif[CYW43_ITF_STA];
+    netif_set_hostname(n, hostname);
+    netif_set_up(n);
+    cyw43_arch_lwip_end();
+}
 
 int main() {
 	stdio_init_all();
@@ -15,6 +23,8 @@ int main() {
 	}
 
 	cyw43_arch_enable_sta_mode();
+	set_host_name(BMC_HOSTNAME);
+	DEBUG_printf("[INIT] [OK ] Set hostname to %s\n", BMC_HOSTNAME);
 
 	if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK, 30000)){
 		DEBUG_printf("[INIT] [ERR] Wi-Fi failed to connect\n");
