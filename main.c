@@ -7,11 +7,11 @@
 #include "secret.h"
 
 void set_host_name(const char * hostname) {
-    cyw43_arch_lwip_begin();
-    struct netif *n = &cyw43_state.netif[CYW43_ITF_STA];
-    netif_set_hostname(n, hostname);
-    netif_set_up(n);
-    cyw43_arch_lwip_end();
+	cyw43_arch_lwip_begin();
+	struct netif *n = &cyw43_state.netif[CYW43_ITF_STA];
+	netif_set_hostname(n, hostname);
+	netif_set_up(n);
+	cyw43_arch_lwip_end();
 }
 
 int main() {
