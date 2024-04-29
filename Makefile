@@ -11,6 +11,7 @@ build:
 	@ $(MAKE) -C build/
 
 release:
+	@ rm -rf build/*
 	@ cmake \
 	--no-warn-unused-cli \
 	-DCMAKE_BUILD_TYPE:STRING=Release \
@@ -21,6 +22,7 @@ release:
 	-B build
 
 debug:
+	@ rm -rf build/*
 	@ cmake \
 	--no-warn-unused-cli \
 	-DCMAKE_BUILD_TYPE:STRING=Debug \
