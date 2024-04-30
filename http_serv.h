@@ -5,6 +5,7 @@
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
 
+#define HTTP_PORT 80
 #define POLL_TIME_S 5
 #define HTTP_GET "GET"
 #define HTTP_POST "POST"
@@ -256,7 +257,7 @@ static err_t tcp_server_accept(void * arg, struct tcp_pcb * client_pcb, err_t er
 
 static bool tcp_server_open(void * arg) {
 	TCP_SERVER_T * state = (TCP_SERVER_T *)arg;
-	DEBUG_printf("[HTTP] [OK ] Starting server at %s on port %d\n", ip4addr_ntoa(netif_ip4_addr(netif_list)), TCP_PORT);
+	DEBUG_printf("[HTTP] [OK ] Starting server at %s on port %d\n", ip4addr_ntoa(netif_ip4_addr(netif_list)), HTTP_PORT);
 
 	struct tcp_pcb * pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
 	if (!pcb) {
@@ -264,15 +265,15 @@ static bool tcp_server_open(void * arg) {
 		return false;
 	}
 
-	err_t err = tcp_bind(pcb, IP_ANY_TYPE, TCP_PORT);
+	err_t err = tcp_bind(pcb, IP_ANY_TYPE, HTTP_PORT);
 	if (err) {
-		DEBUG_printf("[HTTP] [ERR] Failed to bind to port %d\n", TCP_PORT);
+		DEBUG_printf("[HTTP] [ERR] Failed to bind to port %d\n", HTTP_PORT);
 		return false;
 	}
 
 	state->server_pcb = tcp_listen_with_backlog(pcb, 1);
 	if (!state->server_pcb) {
-		DEBUG_printf("[HTTP] [ERR] Failed to listen on port %d\n", TCP_PORT);
+		DEBUG_printf("[HTTP] [ERR] Failed to listen on port %d\n", HTTP_PORT);
 		if (pcb) {
 			tcp_close(pcb);
 		}
