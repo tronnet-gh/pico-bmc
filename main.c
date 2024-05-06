@@ -1,14 +1,18 @@
-#define TCP_PORT 80
+#ifndef NDEBUG
 #define DEBUG_printf printf
+#else
+#define DEBUG_printf
+#endif
 
+#include "secret.h"
 #include "pico_lib.h"
 #include "bmc_handler.h"
 #include "http_serv.h"
-#include "secret.h"
+#include "serial_handler.h"
 
 void set_host_name(const char * hostname) {
 	cyw43_arch_lwip_begin();
-	struct netif *n = &cyw43_state.netif[CYW43_ITF_STA];
+	struct netif * n = &cyw43_state.netif[CYW43_ITF_STA];
 	netif_set_hostname(n, hostname);
 	netif_set_up(n);
 	cyw43_arch_lwip_end();
@@ -21,6 +25,8 @@ int main() {
 		DEBUG_printf("[INIT] [ERR] Failed to initialise cyw43\n");
 		return 1;
 	}
+
+	serial_handler_init();
 
 	cyw43_arch_enable_sta_mode();
 	set_host_name(BMC_HOSTNAME);
@@ -46,6 +52,7 @@ int main() {
 
 	bmc_handler_deinit();
 	http_serv_deinit();
+	serial_handler_deinit();
 	cyw43_arch_deinit();
 	return 0;
 }
