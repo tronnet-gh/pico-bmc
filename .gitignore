@@ -1,4 +1,9 @@
-**/build/*
-**/secret.h
-**/*.log
-**/*.raw
+build/*
+secret.h
+
+# ltspice
+**/ltspice/*.log
+**/ltspice/*.raw
+
+# KiCad
+**/kicad/*-backups
