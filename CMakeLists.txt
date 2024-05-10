@@ -13,6 +13,7 @@ target_include_directories(${PROGRAM_NAME} PRIVATE
 target_link_libraries(${PROGRAM_NAME}
     pico_cyw43_arch_lwip_threadsafe_background
     pico_stdlib
+    pico_multicore
     hardware_adc
 )
 pico_enable_stdio_usb(${PROGRAM_NAME} TRUE)
