@@ -6,17 +6,10 @@
 
 #include "secret.h"
 #include "pico_lib.h"
+#include "network.h"
 #include "bmc_handler.h"
 #include "http_serv.h"
 #include "serial_handler.h"
-
-void set_host_name(const char * hostname) {
-	cyw43_arch_lwip_begin();
-	struct netif * n = &cyw43_state.netif[CYW43_ITF_STA];
-	netif_set_hostname(n, hostname);
-	netif_set_up(n);
-	cyw43_arch_lwip_end();
-}
 
 int main() {
 	stdio_init_all();
@@ -25,34 +18,42 @@ int main() {
 		DEBUG_printf("[INIT] [ERR] Failed to initialise cyw43\n");
 		return 1;
 	}
-
-	serial_handler_init();
-
 	cyw43_arch_enable_sta_mode();
-	set_host_name(BMC_HOSTNAME);
-	DEBUG_printf("[INIT] [OK ] Set hostname to %s\n", BMC_HOSTNAME);
 
-	if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK, 30000)){
-		DEBUG_printf("[INIT] [ERR] Wi-Fi failed to connect\n");
-		return -1;
-	}
-	DEBUG_printf("[INIT] [OK ] Wi-Fi connected successfully\n");
-
+	network_init(BMC_HOSTNAME, WIFI_SSID, WIFI_PASS);
 	http_serv_init();
-
-	// init bmc handler
 	bmc_handler_init();
+	serial_handler_init();
 
 	// set LED to on to indicate it has connected and initialized
 	cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
+	char command [BUF_SIZE];
 	while (!http_serv_state->complete) {
-		sleep_ms(1000);
+		printf("> ");
+		serial_get_line(command, BUF_SIZE);
+
+		if (strcmp(command, "help") == 0) {
+			printf("PICO BMC Shell\n\nhelp\tshow this help message\ninfo\tshow network name, hostname, ip address, and http server port\nclear\tclears the screen\n");
+		}
+		else if (strcmp(command, "info") == 0) {
+			printf("Network: %s\nHostname: %s\nAddress: %s\nHTTP Port: %i\n", WIFI_SSID, BMC_HOSTNAME, ip_ntoa(netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA])), HTTP_PORT);
+		}
+		else if (strcmp(command, "clear") == 0) {
+			printf("\033[2J\033[H");
+		}
+		else if (strcmp(command, "") == 0) {
+			continue;
+		}
+		else {
+			printf("Unknown command: %s\n", command);
+		}
 	}
 
+	serial_handler_deinit();
 	bmc_handler_deinit();
 	http_serv_deinit();
-	serial_handler_deinit();
+	network_deinit();
 	cyw43_arch_deinit();
 	return 0;
 }
