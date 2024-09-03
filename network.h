@@ -9,7 +9,7 @@ void set_host_name(const char * hostname) {
 	cyw43_arch_lwip_end();
 }
 
-int network_init (char * hostname, char * wifi_ssid, char * wifi_pass) {
+int network_init (const char * hostname, const char * wifi_ssid, const char * wifi_pass) {
     set_host_name(hostname);
     DEBUG_printf("[INIT] [OK ] Set hostname to %s\n", BMC_HOSTNAME);
 

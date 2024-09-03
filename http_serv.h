@@ -1,9 +1,9 @@
 #ifndef HTTP_SERV_H
 #define HTTP_SERV_H
 
-#include <string.h>
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
+#include "http_parser.h"
 
 #define HTTP_PORT 80
 #define POLL_TIME_S 5
@@ -22,13 +22,9 @@ typedef struct TCP_SERVER_T_ {
 typedef struct TCP_CONNECT_STATE_T_ {
 	struct tcp_pcb * pcb;
 	int sent_len;
-	char method[8];
-	char request[128];
-	char params[128];
-	char protocol[8];
 	char headers[1024];
-	char body[128];
 	char result[128];
+	HTTP_REQUEST_PARSER_WRAPPER_T * request_parser;
 	int header_len;
 	int result_len;
 	ip_addr_t * gw;
@@ -51,8 +47,10 @@ static err_t tcp_close_client_connection(TCP_CONNECT_STATE_T * con_state, struct
 			close_err = ERR_ABRT;
 		}
 		if (con_state) {
+			delete_request_parser(con_state->request_parser);
 			free(con_state);
 		}
+		DEBUG_printf("[HTTP] [OK ] Finished and closed connection to client\n");
 	}
 	return close_err;
 }
@@ -74,64 +72,6 @@ static err_t tcp_server_sent(void * arg, struct tcp_pcb * pcb, u16_t len) {
 		return tcp_close_client_connection(con_state, pcb, ERR_OK);
 	}
 	return ERR_OK;
-}
-
-static int handle_status_get (const char * request, const char * params, const char * body, char * result, size_t max_result_len) {
-	return snprintf(result, max_result_len, "{volt: %f, temp: %f, power: %d}", current_state.voltage, current_state.tempC, current_state.power_state);
-}
-
-static int handle_power_post (const char * request, const char * params, const char * body, char * result, size_t max_result_len) {
-	if (strstr(body, "requested_state")) {
-		int requested_power_state_int;
-		int led_param = sscanf(body, "requested_state=%d", &requested_power_state_int);
-		if (led_param) {
-			if  (requested_power_state_int == 0 || requested_power_state_int == 1) {
-				bmc_power_handler((bool) requested_power_state_int);
-				return snprintf(result, max_result_len, "{}");
-			}
-			else {
-				return snprintf(result, max_result_len, "{error: true, description: \"invalid requested state, must be 0 or 1\"}"); 
-			}
-		}
-		else {
-			return snprintf(result, max_result_len, "{error: true, description: \"invalid requested state, must be 0 or 1\"}");
-		}
-	}
-	else {
-		return snprintf(result, max_result_len, "{error: true, description: \"missing required parameter requested_state\"}");
-	}
-}
-
-int parse_content (struct pbuf * p, TCP_CONNECT_STATE_T * con_state) {
-	char content[2048] = {0};
-	pbuf_copy_partial(p, &content, 2048 - 1, 0);
-
-	char * headers_start = content; // First header line containing method request?params HTTP/protocol
-	char * headers_other = strstr(content, "\r\n") + 2; // remaining headers follow the first line
-	char * body_start = strstr(content, "\r\n\r\n") + 4; // body begins at the end of headers
-
-	*(headers_other - 2) = 0;
-	*(body_start - 4) = 0;
-
-	char request_params_comb[256];
-	if (sscanf(headers_start, "%s %s HTTP/%s", con_state->method, request_params_comb, con_state->protocol) != 3) {
-		return 0;
-	}
-  
-	char * params = strchr(request_params_comb, '?');
-	if (params) {
-		*params++ = 0;
-		strcpy(con_state->request, request_params_comb);
-		strcpy(con_state->params, params);
-	}
-	else {
-		strcpy(con_state->request, request_params_comb);
-	}
-
-	strcpy(con_state->headers, headers_other);
-	strcpy(con_state->body, body_start);
-
-	return 1;
 }
 
 int send_response (TCP_CONNECT_STATE_T * con_state, struct tcp_pcb * pcb) {
@@ -164,6 +104,32 @@ int send_response (TCP_CONNECT_STATE_T * con_state, struct tcp_pcb * pcb) {
 	return 0;
 }
 
+static int handle_status_get (const char * request, const char * params, const char * body, char * result, size_t max_result_len) {
+	return snprintf(result, max_result_len, "{volt: %f, temp: %f, power: %d}", current_state.voltage, current_state.tempC, current_state.power_state);
+}
+
+static int handle_power_post (const char * request, const char * params, const char * body, char * result, size_t max_result_len) {
+	if (strstr(body, "requested_state")) {
+		int requested_power_state_int;
+		int led_param = sscanf(body, "requested_state=%d", &requested_power_state_int);
+		if (led_param) {
+			if  (requested_power_state_int == 0 || requested_power_state_int == 1) {
+				bmc_power_handler((bool) requested_power_state_int);
+				return snprintf(result, max_result_len, "{}");
+			}
+			else {
+				return snprintf(result, max_result_len, "{error: true, description: \"invalid requested state, must be 0 or 1\"}"); 
+			}
+		}
+		else {
+			return snprintf(result, max_result_len, "{error: true, description: \"invalid requested state, must be 0 or 1\"}");
+		}
+	}
+	else {
+		return snprintf(result, max_result_len, "{error: true, description: \"missing required parameter requested_state\"}");
+	}
+}
+
 err_t tcp_server_recv(void * arg, struct tcp_pcb * pcb, struct pbuf * p, err_t err) {
 	TCP_CONNECT_STATE_T * con_state = (TCP_CONNECT_STATE_T *)arg;
 	if (!p) {
@@ -173,40 +139,45 @@ err_t tcp_server_recv(void * arg, struct tcp_pcb * pcb, struct pbuf * p, err_t e
 	assert(con_state && con_state->pcb == pcb);
 	if (p->tot_len > 0) {
 		DEBUG_printf("[HTTP] [OK ] Server recieved %d err %d\n", p->tot_len, err);
-		// Copy the request into the buffer
 
-		if (!parse_content(p, con_state)) {
-			DEBUG_printf("[HTTP] [ERR] Failed to parse header\n");
-			return tcp_close_client_connection(con_state, pcb, ERR_OK); 
-		}
+		char content[2048] = {0};
+		pbuf_copy_partial(p, &content, 2048 - 1, 0);
+		con_state->request_parser = new_request_parser(); 
+		parse_http_request(con_state->request_parser, content, strlen(content));
+
+		char * protocol = get_protocol(con_state->request_parser);
+		char * method = get_method(con_state->request_parser);
+		char * url = get_url(con_state->request_parser);
+		char * body = get_body(con_state->request_parser);
 		
 		// print request
-		DEBUG_printf("[HTTP] [OK ] Request: %s %s?%s %s\n", con_state->method, con_state->request, con_state->params, con_state->body);
+		DEBUG_printf("[HTTP] [OK ] Request: %s %s %s\n", method, url, body);
 
 		int response_code;
 
 		// parse request depending on method and request
-		if (strncmp(con_state->method, HTTP_GET, sizeof(HTTP_GET) - 1) == 0 && strncmp(con_state->request, "/status", sizeof("/status") - 1) == 0) {
-			con_state->result_len = handle_status_get(con_state->request, con_state->params, con_state->body, con_state->result, sizeof(con_state->result));
+		if (strncmp(method, HTTP_GET, sizeof(HTTP_GET) - 1) == 0 && strncmp(url, "/status", sizeof("/status") - 1) == 0) {
+			con_state->result_len = handle_status_get(url, NULL, body, con_state->result, sizeof(con_state->result));
 			response_code = 200;
 			con_state->header_len = snprintf(con_state->headers, sizeof(con_state->headers), HTTP_RESPONSE_HEADER, response_code, con_state->result_len);
 		}
-		else if (strncmp(con_state->method, HTTP_POST, sizeof(HTTP_POST) - 1) == 0 && strncmp(con_state->request, "/power", sizeof("/power") - 1) == 0) {
-			con_state->result_len = handle_power_post(con_state->request, con_state->params, con_state->body, con_state->result, sizeof(con_state->result));
+		else if (strncmp(method, HTTP_POST, sizeof(HTTP_POST) - 1) == 0 && strncmp(url, "/power", sizeof("/power") - 1) == 0) {
+			con_state->result_len = handle_power_post(url, NULL, body, con_state->result, sizeof(con_state->result));
 			response_code = 200;
 			con_state->header_len = snprintf(con_state->headers, sizeof(con_state->headers), HTTP_RESPONSE_HEADER, response_code, con_state->result_len);
 		}
-		else {
+		else { // if not a registered path, return HTTP 404
 			con_state->result_len = 0;
-			response_code = 501;
+			response_code = 404;
 			con_state->header_len = snprintf(con_state->headers, sizeof(con_state->headers), HTTP_RESPONSE_HEADER, response_code, con_state->result_len);
 		}
 
 		// print result
 		DEBUG_printf("[HTTP] [OK ] Result: %d %s\n", response_code, con_state->result);
 
-		if (send_response(con_state, pcb)) {
-			DEBUG_printf("[HTTP] [ERR] Failure in send\n");
+		int err;
+		if (err = send_response(con_state, pcb)) {
+			DEBUG_printf("[HTTP] [ERR] Failure in send %d\n", err);
 		}
 
 		tcp_recved(pcb, p->tot_len);
@@ -287,6 +258,11 @@ static bool tcp_server_open(void * arg) {
 }
 
 int http_serv_init () {
+	// init http parser
+	if (http_parser_init()) {
+		DEBUG_printf("[HTTP] [ERR] Failed to initialize http parser\n");
+	}
+
 	http_serv_state = calloc(1, sizeof(TCP_SERVER_T));
 	if (!http_serv_state) {
 		DEBUG_printf("[HTTP] [ERR] Failed to allocate state\n");
@@ -304,6 +280,7 @@ int http_serv_init () {
 }
 
 int http_serv_deinit () {
+	http_parser_deinit();
 	tcp_server_close(http_serv_state);
 	free(http_serv_state);
 	http_serv_state = NULL;
