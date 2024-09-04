@@ -7,9 +7,6 @@
 
 #define HTTP_PORT 80
 #define POLL_TIME_S 5
-#define HTTP_GET "GET"
-#define HTTP_POST "POST"
-#define HTTP_RESPONSE_HEADER "HTTP/1.1 %d OK\nContent-Length: %d\nContent-Type: application/json; charset=utf-8\nConnection: close\n\n"
 
 extern CURRENT_STATE_T current_state;
 
@@ -22,11 +19,8 @@ typedef struct TCP_SERVER_T_ {
 typedef struct TCP_CONNECT_STATE_T_ {
 	struct tcp_pcb * pcb;
 	int sent_len;
-	char headers[1024];
-	char result[128];
-	HTTP_REQUEST_PARSER_WRAPPER_T * request_parser;
-	int header_len;
-	int result_len;
+	HTTP_REQUEST_PARSER_T * request_parser;
+	HTTP_RESPONSE_COMPOSER_T * response_composer;
 	ip_addr_t * gw;
 } TCP_CONNECT_STATE_T;
 
@@ -48,6 +42,7 @@ static err_t tcp_close_client_connection(TCP_CONNECT_STATE_T * con_state, struct
 		}
 		if (con_state) {
 			delete_request_parser(con_state->request_parser);
+			delete_response_composer(con_state->response_composer);
 			free(con_state);
 		}
 		DEBUG_printf("[HTTP] [OK ] Finished and closed connection to client\n");
@@ -67,8 +62,8 @@ static err_t tcp_server_sent(void * arg, struct tcp_pcb * pcb, u16_t len) {
 	TCP_CONNECT_STATE_T * con_state = (TCP_CONNECT_STATE_T *)arg;
 	DEBUG_printf("[HTTP] [OK ] Sent %u\n", len);
 	con_state->sent_len += len;
-	if (con_state->sent_len >= con_state->header_len + con_state->result_len) {
-		DEBUG_printf("[HTTP] [OK ] Send done\n");
+	if (con_state->sent_len >= con_state->response_composer->header_length + con_state->response_composer->content_length) {
+		DEBUG_printf("[HTTP] [OK ] Sent done\n");
 		return tcp_close_client_connection(con_state, pcb, ERR_OK);
 	}
 	return ERR_OK;
@@ -76,26 +71,26 @@ static err_t tcp_server_sent(void * arg, struct tcp_pcb * pcb, u16_t len) {
 
 int send_response (TCP_CONNECT_STATE_T * con_state, struct tcp_pcb * pcb) {
 	// Check result buffer size
-	if (con_state->result_len > sizeof(con_state->result) - 1) {
-		DEBUG_printf("[HTTP] [ERR] Too much result data %d\n", con_state->result_len);
+	if (con_state->response_composer->content_length > sizeof(con_state->response_composer->body) - 1) {
+		DEBUG_printf("[HTTP] [ERR] Too much result data %d\n", con_state->response_composer->content_length);
 		return tcp_close_client_connection(con_state, pcb, ERR_CLSD);
 	}
 	// Check header buffer size
-	if (con_state->header_len > sizeof(con_state->headers) - 1) {
-		DEBUG_printf("[HTTP] [ERR] Too much header data %d\n", con_state->header_len);
+	if (con_state->response_composer->header_length > sizeof(con_state->response_composer->header) - 1) {
+		DEBUG_printf("[HTTP] [ERR] Too much header data %d\n", con_state->response_composer->header_length);
 		return tcp_close_client_connection(con_state, pcb, ERR_CLSD);
 	}
 
 	// Send the headers to the client
 	con_state->sent_len = 0;
-	err_t err = tcp_write(pcb, con_state->headers, con_state->header_len, 0);
+	err_t err = tcp_write(pcb, con_state->response_composer->header, con_state->response_composer->header_length, 0);
 	if (err != ERR_OK) {
 		DEBUG_printf("[HTTP] [ERR] Failed to write header data %d\n", err);
 		return tcp_close_client_connection(con_state, pcb, err);
 	}
 	// Send the body to the client
-	if (con_state->result_len) {
-		err = tcp_write(pcb, con_state->result, con_state->result_len, 0);
+	if (con_state->response_composer->content_length) {
+		err = tcp_write(pcb, con_state->response_composer->body, con_state->response_composer->content_length, 0);
 		if (err != ERR_OK) {
 			DEBUG_printf("[HTTP] [ERR] Failed to write result data %d\n", err);
 			return tcp_close_client_connection(con_state, pcb, err);
@@ -104,30 +99,45 @@ int send_response (TCP_CONNECT_STATE_T * con_state, struct tcp_pcb * pcb) {
 	return 0;
 }
 
-static int handle_status_get (const char * request, const char * params, const char * body, char * result, size_t max_result_len) {
-	return snprintf(result, max_result_len, "{volt: %f, temp: %f, power: %d}", current_state.voltage, current_state.tempC, current_state.power_state);
+void handle_status_get (const char * request, const char * params, char * body, HTTP_RESPONSE_COMPOSER_T * response) {
+	set_status(response, 200);
+	set_type(response, "application/json");
+	char response_body[128];
+	snprintf(response_body, 128, "{volt: %f, temp: %f, power: %d}", current_state.voltage, current_state.tempC, current_state.power_state);
+	set_body(response, response_body);
 }
 
-static int handle_power_post (const char * request, const char * params, const char * body, char * result, size_t max_result_len) {
+void handle_power_post (const char * request, const char * params, char * body, HTTP_RESPONSE_COMPOSER_T * response) {
+	set_type(response, "application/json");
 	if (strstr(body, "requested_state")) {
 		int requested_power_state_int;
 		int led_param = sscanf(body, "requested_state=%d", &requested_power_state_int);
 		if (led_param) {
 			if  (requested_power_state_int == 0 || requested_power_state_int == 1) {
+				set_status(response, 200);
 				bmc_power_handler((bool) requested_power_state_int);
-				return snprintf(result, max_result_len, "{}");
+				set_body(response, "{}");
 			}
 			else {
-				return snprintf(result, max_result_len, "{error: true, description: \"invalid requested state, must be 0 or 1\"}"); 
+				set_status(response, 400);
+				set_body(response, "{error: true, description: \"invalid requested state, must be 0 or 1\"}"); 
 			}
 		}
 		else {
-			return snprintf(result, max_result_len, "{error: true, description: \"invalid requested state, must be 0 or 1\"}");
+			set_status(response, 400);
+			set_body(response, "{error: true, description: \"invalid requested state, must be 0 or 1\"}");
 		}
 	}
 	else {
-		return snprintf(result, max_result_len, "{error: true, description: \"missing required parameter requested_state\"}");
+		set_status(response, 400);
+		set_body(response, "{error: true, description: \"missing required parameter requested_state\"}");
 	}
+}
+
+void handle_404_not_found (const char * request, const char * params, char * body, HTTP_RESPONSE_COMPOSER_T * response) {
+	set_status(response, 404);
+	set_type(response, "application/json");
+	set_body(response, "");
 }
 
 err_t tcp_server_recv(void * arg, struct tcp_pcb * pcb, struct pbuf * p, err_t err) {
@@ -138,42 +148,38 @@ err_t tcp_server_recv(void * arg, struct tcp_pcb * pcb, struct pbuf * p, err_t e
 	}
 	assert(con_state && con_state->pcb == pcb);
 	if (p->tot_len > 0) {
-		DEBUG_printf("[HTTP] [OK ] Server recieved %d err %d\n", p->tot_len, err);
+		DEBUG_printf("[HTTP] [OK ] Recieved %d err: %d\n", p->tot_len, err);
 
 		char content[2048] = {0};
 		pbuf_copy_partial(p, &content, 2048 - 1, 0);
 		con_state->request_parser = new_request_parser(); 
 		parse_http_request(con_state->request_parser, content, strlen(content));
 
-		char * protocol = get_protocol(con_state->request_parser);
-		char * method = get_method(con_state->request_parser);
+		llhttp_method_t method = get_method(con_state->request_parser);
 		char * url = get_url(con_state->request_parser);
 		char * body = get_body(con_state->request_parser);
 		
-		// print request
-		DEBUG_printf("[HTTP] [OK ] Request: %s %s %s\n", method, url, body);
+		// debug print request
+		const char * method_name = llhttp_method_name(method);
+		DEBUG_printf("[HTTP] [OK ] Request: %s %s %s\n", method_name, url, body);
 
-		int response_code;
+		con_state->response_composer = new_response_composer();
 
 		// parse request depending on method and request
-		if (strncmp(method, HTTP_GET, sizeof(HTTP_GET) - 1) == 0 && strncmp(url, "/status", sizeof("/status") - 1) == 0) {
-			con_state->result_len = handle_status_get(url, NULL, body, con_state->result, sizeof(con_state->result));
-			response_code = 200;
-			con_state->header_len = snprintf(con_state->headers, sizeof(con_state->headers), HTTP_RESPONSE_HEADER, response_code, con_state->result_len);
+		if (method == HTTP_GET && strncmp(url, "/status", sizeof("/status") - 1) == 0) {
+			handle_status_get(url, NULL, body, con_state->response_composer);
 		}
-		else if (strncmp(method, HTTP_POST, sizeof(HTTP_POST) - 1) == 0 && strncmp(url, "/power", sizeof("/power") - 1) == 0) {
-			con_state->result_len = handle_power_post(url, NULL, body, con_state->result, sizeof(con_state->result));
-			response_code = 200;
-			con_state->header_len = snprintf(con_state->headers, sizeof(con_state->headers), HTTP_RESPONSE_HEADER, response_code, con_state->result_len);
+		else if (method == HTTP_POST && strncmp(url, "/power", sizeof("/power") - 1) == 0) {
+			handle_power_post(url, NULL, body, con_state->response_composer);
 		}
 		else { // if not a registered path, return HTTP 404
-			con_state->result_len = 0;
-			response_code = 404;
-			con_state->header_len = snprintf(con_state->headers, sizeof(con_state->headers), HTTP_RESPONSE_HEADER, response_code, con_state->result_len);
+			handle_404_not_found(url, NULL, body, con_state->response_composer);
 		}
 
+		compose_http_response(con_state->response_composer);
+
 		// print result
-		DEBUG_printf("[HTTP] [OK ] Result: %d %s\n", response_code, con_state->result);
+		DEBUG_printf("[HTTP] [OK ] Result: %s %s\n", con_state->response_composer->header, con_state->response_composer->body);
 
 		int err;
 		if (err = send_response(con_state, pcb)) {
