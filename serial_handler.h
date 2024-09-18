@@ -68,7 +68,9 @@ void key_pressed_worker_func(async_context_t * context, async_when_pending_worke
 			append_char(key);
 		}
 		else if (key == 27) { // escape & escape codes
-			while (getchar_timeout_us(0) > 0) {}
+			while (getchar_timeout_us(0) > 0) {
+				// TODO handle escape codes
+			}
 			break;
 		}
 		else {	// other unhandled key
@@ -83,7 +85,7 @@ static async_when_pending_worker_t key_pressed_worker = {
 
 // because of stdio_set_chars_available_callback implementation, stdlib mutex is locked here so schedule another callback
 void key_pressed_func(void * param) {
-	async_context_set_work_pending((async_context_t *)param, &key_pressed_worker);
+	async_context_set_work_pending((async_context_t *) param, &key_pressed_worker);
 }
 
 // init serial handler

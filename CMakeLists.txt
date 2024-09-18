@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.13)
 
+cmake_policy(SET CMP0135 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0135 NEW)
+
+set(PICO_SDK_FETCH_FROM_GIT on)
+set(PICOTOOL_FETCH_FROM_GIT_PATH build/picotool)
+
 set(PROGRAM_NAME pico_bmc)
 set(PICO_BOARD pico_w)
 include(pico_sdk_import.cmake)

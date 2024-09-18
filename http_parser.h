@@ -81,7 +81,7 @@ void delete_request_parser (HTTP_REQUEST_PARSER_T * wrapper) {
 
 typedef struct HTTP_RESPONSE_DATA_T_ {
 	llhttp_status_t status;
-	char type[32];
+	char type[128];
 	char body[128];
 } HTTP_RESPONSE_DATA_T;
 
